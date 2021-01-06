@@ -26,36 +26,45 @@ getIndices (Leaf n) = [n]
 getIndices (Node l) = l >>= (getIndices . snd)
 
 partition :: Eq a => [a] -> [a] -> ([a], [a], [a])
-partition a b = (pr, as, bs)
-    where
-        pr = map fst (takeWhile (uncurry (==)) (zip a b))
-        as = drop (length pr) a
-        bs = drop (length pr) b
+partition s1@(c : cs) s2@(w : ws)
+  | c == w = (c : cs', ws', zs')
+  | otherwise = ([], s1, s2)
+  where
+    (cs', ws', zs') = partition cs ws
+partition s1 s2 = ([], s1, s2)
 
-partition' :: Eq a => [a] -> [a] -> ([a], [a], [a])
-partition' ta@(a : as) tb@(b : bs)
-    | a == b = app a (partition' as bs)
-    | otherwise = ([], ta, tb)
+findSubstrings'' :: String -> SuffixTree -> [Int]
+findSubstrings'' "" (Leaf n) = [n]
+findSubstrings'' _ (Leaf _)  = []
+findSubstrings'' s (Node l) = l >>= fs
     where
-        app e (x, y, z) = (e : x, y, z)
+        fs (a, t)
+            | isPrefix s a = getIndices t
+            | isPrefix a s = findSubstrings'' (removePrefix a s) t
+            | otherwise = []
 
 findSubstrings' :: String -> SuffixTree -> [Int]
 findSubstrings' "" (Leaf n) = [n]
 findSubstrings' _ (Leaf _)  = []
-findSubstrings' s (Node l) = concatMap fs l
-    where
-        fs (a, t)
-            | isPrefix s a = getIndices t
-            | isPrefix a s = findSubstrings' (removePrefix a s) t
-            | otherwise = []
-
-
+findSubstrings' s (Node l) = l >>= fs
+  where
+    fs (a, t) = case partition s a of
+      (_, "", _) -> getIndices t
+      (_, m, "") -> findSubstrings' m t
+      _          -> []
 
 ------------------------------------------------------
 
 insert :: (String, Int) -> SuffixTree -> SuffixTree
-insert 
-  = undefined
+insert (s, n) (Node ls)
+  | (not . and) [null m | (l, _) <- ls, let (m, _, _) = partition s l] = Node (map inspect ls)
+  | otherwise = Node ((s, Leaf n) : ls)
+  where
+    inspect :: (String, SuffixTree) -> (String, SuffixTree)
+    inspect (a, t) = case partition s a of
+      ("", _, _)  -> (a, t)
+      (p, r, "")  -> (a, insert (r, n) t)
+      (p, r1, r2) -> (p, Node [(r1, Leaf n), (r2, t)])
 
 -- This function is given
 buildTree :: String -> SuffixTree 
@@ -66,8 +75,10 @@ buildTree s
 -- Part IV
 
 longestRepeatedSubstring :: SuffixTree -> String
-longestRepeatedSubstring 
-  = undefined
+longestRepeatedSubstring (Node x) = (snd . maximum . concat) ([(0, "")] : [longest (s, Node t) | (s, Node t) <- x])
+  where
+    longest (s, Node ls) = (length s, s) : concat [longest (s ++ st, Node t) | (st, Node t) <- ls]
+longestRepeatedSubstring _        = ""
 
 ------------------------------------------------------
 -- Example strings and suffix trees...
