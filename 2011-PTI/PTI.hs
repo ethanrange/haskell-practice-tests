@@ -49,21 +49,19 @@ primTypes
 
 -- Pre: The search item is in the table
 lookUp :: Eq a => a -> [(a, b)] -> b
-lookUp 
-  = undefined
+lookUp = (.) fromJust . lookup
 
 tryToLookUp :: Eq a => a -> b -> [(a, b)] -> b
-tryToLookUp 
-  = undefined
+tryToLookUp s d l = fromMaybe d (lookup s l) 
 
 -- Pre: The given value is in the table
 reverseLookUp :: Eq b => b -> [(a, b)] -> [a]
-reverseLookUp 
-  = undefined
+reverseLookUp s l = [k | (k, v) <- l, v == s]
 
 occurs :: String -> Type -> Bool
-occurs 
-  = undefined
+occurs s (TVar x)   = s == x
+occurs s (TFun x y) = occurs s x || occurs s y
+occurs _ _          = False
 
 ------------------------------------------------------
 -- PART II
@@ -72,22 +70,49 @@ occurs
 -- Pre: All type variables in the expression have a binding in the given 
 --      type environment
 inferType :: Expr -> TEnv -> Type
-inferType
-  = undefined
+inferType (Number _) _  = TInt
+inferType (Boolean _) _ = TBool 
+inferType (Id i) ev     = lookUp i ev
+inferType (Prim o) _    = lookUp o primTypes
+inferType (Cond c b1 b2) ev
+  | ct == TBool && t1 == t2 = t1
+  where [ct, t1, t2] = map (`inferType` ev) [c, b1, b2]
+inferType (App f a) ev
+  | TFun t t' <- inferType f ev, inferType a ev == t = t'
+inferType _ _           = TErr
 
 ------------------------------------------------------
 -- PART III
 
-applySub
-  = undefined
+applySub :: Sub -> Type -> Type
+applySub s (TVar v)     = tryToLookUp v (TVar v) s
+applySub s (TFun t1 t2) = TFun (applySub s t1) (applySub s t2)
+applySub _ t            = t
 
 unify :: Type -> Type -> Maybe Sub
-unify t t'
-  = unifyPairs [(t, t')] []
+unify t t' = unifyPairs [(t, t')] []
 
 unifyPairs :: [(Type, Type)] -> Sub -> Maybe Sub
-unifyPairs
-  = undefined
+unifyPairs [] s = Just s
+unifyPairs ((TInt, TInt) : ts) s = unifyPairs ts s
+unifyPairs ((TBool, TBool) : ts) s = unifyPairs ts s
+unifyPairs ((TVar v, TVar v') : ts) s
+  | v == v' = unifyPairs ts s
+unifyPairs ((TVar v, t') : ts) s
+  | occurs v t' = Nothing
+  | otherwise = unifyPairs ul (b : s)
+    where
+      b = (v, t')
+      ul = [(applySub [b] x, applySub [b] y) | (x, y) <- ts]
+unifyPairs ((t', TVar v) : ts) s 
+  | occurs v t' = Nothing
+  | otherwise = unifyPairs ul (b : s)
+    where
+      b = (v, t')
+      ul = [(applySub [b] x, applySub [b] y) | (x, y) <- ts]
+unifyPairs ((TFun t1 t2, TFun t1' t2') : ts) s = unifyPairs (p ++ ts) s 
+  where p = [(t1, t1'), (t2, t2')]
+unifyPairs _ _ = Nothing
 
 ------------------------------------------------------
 -- PART IV
@@ -109,19 +134,31 @@ combineSubs
   = foldr1 combine
 
 inferPolyType :: Expr -> Type
-inferPolyType
-  = undefined
+inferPolyType e = let (_, n, _) = inferPolyType' e [] ['a':show n | n <- [1..]] in n
 
 -- You may optionally wish to use one of the following helper function declarations
 -- as suggested in the specification. 
 
--- inferPolyType' :: Expr -> TEnv -> [String] -> (Sub, Type, [String])
--- inferPolyType'
---   = undefined
-
--- inferPolyType' :: Expr -> TEnv -> Int -> (Sub, Type, Int)
--- inferPolyType' 
---   = undefined
+inferPolyType' :: Expr -> TEnv -> [String] -> (Sub, Type, [String])
+inferPolyType' (Number _) ev ts = (ev, TInt, ts)
+inferPolyType' (Boolean _) ev ts = (ev, TBool, ts)
+inferPolyType' (Id i) ev ts    = (ev, tryToLookUp i (TVar i) ev, ts)
+inferPolyType' (Prim o) ev ts = (ev, lookUp o primTypes, ts)
+inferPolyType' (Fun x e) ev (s : sl)
+  | te == TErr = (nev, te, ns)
+  | otherwise  = (nev, TFun (applySub nev (TVar s)) te, ns)
+  where
+    b = (x, TVar s)
+    (nev, te, ns) = inferPolyType' e (b : ev) sl
+inferPolyType' (App f a) ev st@(s : sl)
+  | isNothing te = ([], TErr, [])
+  | otherwise = (fs, applySub fs (TVar n), ns)
+  where
+    (tev, tf, tns) = inferPolyType' f ev st
+    (nev, ta, nt@(n : ns)) = inferPolyType' a (updateTEnv ev tev) tns
+    te = unify (TFun ta (TVar n)) tf
+    fs = combineSubs [fromJust te, nev, tev]
+inferPolyType' _ ev _      = ([], TErr, [])
 
 ------------------------------------------------------
 -- Monomorphic type inference test cases from Table 1...
