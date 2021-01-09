@@ -6,63 +6,72 @@ data BinTree a = Node a Int (BinHeap a)
 --------------------------------------------------------------
 -- PART I
 
-key :: BinTree a -> a
-key
-  = undefined
+value :: BinTree a -> a
+value (Node v _ _) = v
 
 rank :: BinTree a -> Int
-rank
-  = undefined
+rank (Node _ k _) = k
 
 children :: BinTree a -> [BinTree a]
-children
-  = undefined
+children (Node _ _ bs) = bs
 
 combineTrees :: Ord a => BinTree a -> BinTree a -> BinTree a
-combineTrees 
-  = undefined
+combineTrees ta@(Node va ra ca) tb@(Node vb rb cb)
+  | va < vb   = Node va (ra + 1) (tb : ca)
+  | otherwise = Node vb (rb + 1) (ta : cb)
 
 --------------------------------------------------------------
 -- PART II
 
 extractMin :: Ord a => BinHeap a -> a
-extractMin 
-  = undefined
+extractMin = minimum . map value
 
 mergeHeaps :: Ord a => BinHeap a -> BinHeap a -> BinHeap a
-mergeHeaps 
-  = undefined
+mergeHeaps [] h = h
+mergeHeaps h [] = h
+mergeHeaps h@(t : ts) h'@(t' : ts')
+  | rt < rt'  = t : mergeHeaps ts h'
+  | rt > rt'  = t' : mergeHeaps ts' h
+  | otherwise = mergeHeaps [combineTrees t t'] (mergeHeaps ts ts')
+  where
+    (rt, rt') = (rank t, rank t')
 
 insert :: Ord a => a -> BinHeap a -> BinHeap a
-insert 
-  = undefined
+insert v = mergeHeaps [Node v 0 []]
 
 deleteMin :: Ord a => BinHeap a -> BinHeap a
-deleteMin 
-  = undefined
-
-remove :: Eq a => a -> BinHeap a -> BinHeap a
-remove
-  = undefined
-
-removeMin :: Ord a => BinHeap a -> (BinTree a, BinHeap a)
-removeMin
-  = undefined
+deleteMin bh = mergeHeaps ((reverse . children) m) (s ++ e)
+  where
+    (s, m : e) = break ((==min) . value) bh
+    min = extractMin bh
 
 binSort :: Ord a => [a] -> [a]
-binSort 
-  = undefined
+binSort xs = map extractMin (takeWhile (not . null) (iterate deleteMin c))
+  where
+    c = foldr insert [] xs
 
 --------------------------------------------------------------
 -- PART III
 
 toBinary :: BinHeap a -> [Int]
-toBinary
-  = undefined
-
+toBinary bh = reverse [(fromEnum . any (contRank x)) bh | x <- [0..mr]]
+  where
+    mr       = (maximum . map rank) bh
+    contRank = (. rank) . (==)
+    
 binarySum :: [Int] -> [Int] -> [Int]
-binarySum
-  = undefined
+binarySum = ((reverse . flip bs 0 . reverse) .) . (.) (uncurry (zipWith (+))) . equalise
+  where
+    bs :: [Int] -> Int -> [Int]
+    bs [] 0       = []
+    bs [] 1       = [1]
+    bs (0 : ds) c = c : bs ds 0
+    bs (1 : ds) c = (1 - c) : bs ds c
+    bs (2 : ds) c = c : bs ds 1
+
+equalise :: [Int] -> [Int] -> ([Int], [Int])
+equalise a b = (replicate (-diff) 0 ++ a, replicate diff 0 ++ b)
+  where diff = length a - length b
 
 ------------------------------------------------------
 -- Some sample trees...
