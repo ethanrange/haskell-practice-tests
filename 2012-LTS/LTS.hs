@@ -23,58 +23,84 @@ type StateMap = [((State, State), State)]
 
 lookUp :: Eq a => a -> [(a, b)] -> b
 --Pre: The item is in the table
-lookUp
-  = undefined
+lookUp = (.) fromJust . lookup
 
 states :: LTS -> [State]
-states
-  = undefined
+states = nub . concatMap ((\(s1, s2) -> [s1, s2]) . fst)
 
 transitions :: State -> LTS -> [Transition]
-transitions
-  = undefined
+transitions s = filter ((==s) . fst . fst)
 
 alphabet :: LTS -> Alphabet
-alphabet 
-  = undefined
+alphabet = nub . map snd
 
 ------------------------------------------------------
 -- PART II
 
 actions :: Process -> [Id]
-actions
-  = undefined
+actions = nub . ac
+  where
+    ac (Prefix i p) = i : ac p
+    ac (Choice ps)  = ps >>= ac
+    ac _            = []
 
 accepts :: [Id] -> [ProcessDef] -> Bool
 --Pre: The first item in the list of process definitions is
 --     that of the start process.
-accepts 
-  = undefined
+accepts [] _ = True
+accepts ids pds@(p : _) = ac ids p
+  where
+    ac :: [Id] -> ProcessDef -> Bool
+    ac [] _              = True
+    ac _ (_, STOP)       = False
+    ac is (s, Ref t)     = ac is (s, lookUp t pds)
+    ac (i : is) (s, Prefix t t')
+      | i == t           = ac is (s, t')
+      | otherwise = False
+    ac is (s, Choice ts) = any (ac is) (zip (repeat s) ts)
 
 ------------------------------------------------------
 -- PART III
 
---composeTransitions :: Transition -> Transition 
---                   -> Alphabet -> Alphabet 
---                   -> StateMap 
---                   -> [Transition]
+composeTransitions :: Transition -> Transition 
+                  -> Alphabet -> Alphabet 
+                  -> StateMap 
+                  -> [Transition]
 --Pre: The first alphabet is that of the LTS from which the first transition is
 --     drawn; likewise the second.
 --Pre: All (four) pairs of source and target states drawn from the two transitions
 --     are contained in the given StateMap.
-composeTransitions
-  = undefined
+composeTransitions ((s, t), is) ((s', t'), it) as at m
+  | is == it = [((ss, tt), is)]
+  | elem is at && elem it as = []
+  | elem it as = [((ss, ts), is)]
+  | elem is at = [((ss, st), it)]
+  | otherwise = [((ss, ts), is), ((ss, st), it)]
+  where
+    p!q = lookUp (p, q) m
+    [ss, tt, st, ts] = [s!s', t!t', s!t', t!s']
 
 pruneTransitions :: [Transition] -> LTS
-pruneTransitions 
-  = undefined
+pruneTransitions ts = visit 0 []
+  where
+    visit :: State -> [State] -> [Transition]
+    visit s vs
+      | elem s vs = []
+      | otherwise = trs ++ concatMap (\((f, t), a) -> visit t (s : vs)) trs
+        where
+          trs = transitions s ts
 
 ------------------------------------------------------
 -- PART IV
 
 compose :: LTS -> LTS -> LTS
-compose 
-  = undefined
+compose l1 l2 = (nub . pruneTransitions . filter (flip notElem ["$", "$'"] . snd)) (concatMap ct ts)
+  where
+    scp = [(s, t) | s <- states l1, t <- states l2]
+    tcp (s, t) = [(st, tt) | st <- ((s, s), "$") : transitions s l1,
+                             tt <- ((t, t), "$'") : transitions t l2]
+    ts = concatMap tcp scp
+    ct (s, t) = composeTransitions s t ("$" : alphabet l1) ("$'" : alphabet l2) (zip scp [0..])
 
 ------------------------------------------------------
 -- PART V
