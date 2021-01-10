@@ -56,55 +56,65 @@ type Binding = (Id, (Scope, Value))
 
 type State = [Binding]
 
+-- Blackbird Operator
+(.:) = (.) . (.)
+
 --------------------------------------------------------------------
 -- Part I
 
 getValue :: Id -> State -> Value
 -- Pre: The identifier has a binding in the state
-getValue 
-  = undefined
+getValue = snd .: lookUp
 
 getLocals :: State -> State
-getLocals
-  = undefined
+getLocals = filter ((==Local) . fst . snd)
 
 getGlobals :: State -> State
-getGlobals
-  = undefined
+getGlobals = filter ((==Global) . fst . snd)
 
 assignArray :: Value -> Value -> Value -> Value
 -- The arguments are the array, index and (new) value respectively
 -- Pre: The three values have the appropriate value types (array (A), 
 --      integer (I) and integer (I)) respectively.
-assignArray 
-  = undefined
+assignArray (A es) (I i) (I v) = A ((i, v) : filter ((/=i) . fst) es)
 
 updateVar :: (Id, Value) -> State -> State
-updateVar 
-  = undefined
+updateVar (i, v) s
+  | Nothing <- lookup i s = (i, (Local, v)) : s
+  | otherwise = [(si, (ss, v)) | (si, (ss, _)) <- s, si == i] ++ filter ((/=i) . fst) s
 
 ---------------------------------------------------------------------
 -- Part II
 
 applyOp :: Op -> Value -> Value -> Value
 -- Pre: The values have the appropriate types (I or A) for each primitive
-applyOp 
-  = undefined
+applyOp Add (I x) (I y) = I (x + y)
+applyOp Mul (I x) (I y) = I (x * y)
+applyOp Less (I x) (I y) = I (fromEnum (x < y))
+applyOp Equal (I x) (I y) = I (fromEnum (x == y))
+applyOp Index (A es) (I i) = I (fromMaybe 0 (lookup i es))
 
 bindArgs :: [Id] -> [Value] -> State
 -- Pre: the lists have the same length
-bindArgs
-  = undefined
+bindArgs = (. zip (repeat Local)) . zip
 
 evalArgs :: [Exp] -> [FunDef] -> State -> [Value]
-evalArgs
-  = undefined
+evalArgs es ds s = [eval e ds s | e <- es]
 
 eval :: Exp -> [FunDef] -> State -> Value
 -- Pre: All expressions are well formed
 -- Pre: All variables referenced have bindings in the given state
-eval 
-  = undefined
+eval (Const c) _ _ = c
+eval (Var v) _ s = getValue v s
+eval (Cond p b1 b2) ds s
+  | eval p ds s == I 1 = eval b1 ds s
+  | otherwise = eval b2 ds s
+eval (OpApp o e1 e2) ds s = applyOp o v1 v2
+  where (v1, v2) = (eval e1 ds s, eval e2 ds s)
+eval (FunApp i es) ds s = eval e ds (bindArgs as vs ++ s)
+  where
+    (as, e) = lookUp i ds
+    vs = evalArgs es ds s
 
 ---------------------------------------------------------------------
 -- Part III
@@ -113,16 +123,40 @@ executeStatement :: Statement -> [FunDef] -> [ProcDef] -> State -> State
 -- Pre: All statements are well formed 
 -- Pre: For array element assignment (AssignA) the array variable is in scope,
 --      i.e. it has a binding in the given state
-executeStatement 
-  = undefined
+executeStatement (Assign v e) fd pd s = updateVar (v, eval e fd s) s
+executeStatement (AssignA id p e) fd pd s = updateVar (id, assignArray a pv ev) s
+  where
+    (pv, ev) = (eval p fd s, eval e fd s)
+    a        = getValue id s
+executeStatement (If p b1 b2) fd pd s
+  | eval p fd s == I 1 = executeBlock b1 fd pd s
+  | otherwise          = executeBlock b2 fd pd s
+executeStatement (While p b) fd pd s
+  | eval p fd s == I 1 = executeStatement (While p b) fd pd (executeBlock b fd pd s)
+  | otherwise          = s
+executeStatement (Call id pid es) fd pd s
+  | null id   = fs
+  | otherwise = updateVar (id, res) fs
+  where
+    (as, b)  = lookUp pid pd
+    vs       = evalArgs es fd s
+    rs       = executeBlock b fd pd (bindArgs as vs ++ getGlobals s)
+    fs       = getLocals s ++ getGlobals rs
+    (_, res) = lookUp "$res" rs
+executeStatement (Return e) fd pd s = ("$res", (Local, v)) : s
+  where
+    v = eval e fd s
 
 executeBlock :: Block -> [FunDef] -> [ProcDef] -> State -> State
 -- Pre: All code blocks and associated statements are well formed
-executeBlock 
-  = undefined
+executeBlock [] fd pd s       = s
+executeBlock (sm : b) fd pd s = executeBlock b fd pd (executeStatement sm fd pd s)
 
 ---------------------------------------------------------------------
 -- Part IV
+
+-- Doesn't match the variable labelling of the test cases but the method
+-- in the test cases is odd.
 
 translate :: FunDef -> Id -> [(Id, Id)] -> ProcDef
 translate (name, (as, e)) newName nameMap 
@@ -131,8 +165,21 @@ translate (name, (as, e)) newName nameMap
     (b, e', ids') = translate' e nameMap ['$' : show n | n <- [1..]] 
 
 translate' :: Exp -> [(Id, Id)] -> [Id] -> (Block, Exp, [Id])
-translate' 
-  = undefined
+translate' (FunApp i es) m (id : ids) = (b, Var id, ids)
+  where
+    b = [Call id nid es]
+    nid = lookUp i m
+translate' (Cond p e1 e2) m ids@(id : _) = (b, Var id , ids'')
+  where
+    b = [If p b1 b2]
+    (b1, b1e, ids') = translate' e1 m ids
+    (b2, b2e, ids'') = translate' e2 m ids
+translate' (OpApp o e1 e2) m (id : ids) = (b, Var id, ids'')
+  where
+    b = b1 ++ b2 ++ [Assign id (OpApp o b1e b2e)]
+    (b1, b1e, ids') = translate' e1 m ids
+    (b2, b2e, ids'') = translate' e2 m ids'
+translate' e m (id : ids) = ([Assign id e], e, ids)
 
 ---------------------------------------------------------------------
 -- PREDEFINED FUNCTIONS
