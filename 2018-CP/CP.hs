@@ -47,14 +47,14 @@ update p@(id, _) s = p : filter ((/=id) . fst) s
 apply :: Op -> Int -> Int -> Int
 apply Add = (+)
 apply Mul = (*)
-apply Eq = fromEnum .: (==)
+apply Eq  = fromEnum .: (==)
 apply Gtr = fromEnum .: (>)
 
 eval :: Exp -> State -> Int
 -- Pre: the variables in the expression will all be bound in the given state 
 -- Pre: expressions do not contain phi instructions
-eval (Const c) _ = c
-eval (Var id) s  = lookUp id s
+eval (Const c) _       = c
+eval (Var id) s        = lookUp id s
 eval (Apply o e1 e2) s = apply o (eval e1 s) (eval e2 s)
 
 execStatement :: Statement -> State -> State
@@ -149,8 +149,15 @@ optimise (name, args, body)
 
 unPhi :: Block -> Block
 -- Pre: the block is in SSA form
-unPhi 
-  = undefined
+unPhi [] = []
+unPhi (If p b1 b2 : Assign v (Phi e1 e2) : bs) = unPhi (If p nb1 nb2 : bs)
+  where
+    (nb1, nb2) = (b1 ++ [Assign v e1], b2 ++ [Assign v e2])
+unPhi (If p b1 b2 : bs) = If p (unPhi b1) (unPhi b2) : unPhi bs
+unPhi (DoWhile b p : bs)
+  | (Assign v (Phi e1 e2) : bs') <- b = Assign v e1 : unPhi (DoWhile (bs' ++ [Assign v e2]) p : bs)
+  | otherwise = DoWhile (unPhi b) p : unPhi bs
+unPhi (b : bs) = b : unPhi bs
 
 ------------------------------------------------------------------------
 -- Part IV
